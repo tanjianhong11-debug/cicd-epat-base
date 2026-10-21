@@ -195,3 +195,53 @@ jobs:
           trivy-results.json
           .trivyignore
         retention-days: 7
+
+  docker-push:
+    name: Push image to Docker Hub
+    needs: [docker-build, container-scanning]
+    # Publish successful builds from main even when Trivy reports a failure.
+    if: >-
+      !cancelled() &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor != 'dependabot[bot]' &&
+      needs.docker-build.result == 'success' &&
+      (needs.container-scanning.result == 'success' ||
+       needs.container-scanning.result == 'failure')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - name: Check Docker Hub credentials
+      env:
+        DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      run: |
+        if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+          echo "::error::Add DOCKERHUB_USERNAME and DOCKERHUB_TOKEN as repository Actions secrets."
+          exit 1
+        fi
+
+    - name: Download built Docker image
+      uses: actions/download-artifact@v4
+      with:
+        name: docker-image
+        path: ${{ runner.temp }}/docker-image
+
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    - name: Load, tag, and push image
+      env:
+        DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      run: |
+        docker load --input "$RUNNER_TEMP/docker-image/d13revision.tar"
+        image="docker.io/${DOCKERHUB_USERNAME}/d13revision"
+        docker tag "d13revision:${GITHUB_SHA}" "${image}:${GITHUB_SHA}"
+        docker tag "d13revision:${GITHUB_SHA}" "${image}:latest"
+        docker push "${image}:${GITHUB_SHA}"
+        docker push "${image}:latest"

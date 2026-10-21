@@ -153,7 +153,7 @@ jobs:
     - name: Scan all container vulnerabilities
       uses: aquasecurity/trivy-action@v0.36.0
       env:
-        # Capture every finding before applying the requested CVE suppressions.
+        # Capture every finding before applying CVE and GHSA suppressions.
         TRIVY_IGNOREFILE: /dev/null
       with:
         scan-type: image
@@ -166,16 +166,16 @@ jobs:
         exit-code: '0'
         timeout: 10m
 
-    - name: Add all detected CVEs to .trivyignore
+    - name: Add all detected CVE and GHSA IDs to .trivyignore
       run: |
         touch .trivyignore
         jq --raw-output \
-          '[.Results[]?.Vulnerabilities[]?.VulnerabilityID | select(test("^CVE-[0-9]{4}-[0-9]+$"))] | unique[]' \
-          trivy-results.json > detected-cves.txt
-        awk '!seen[$0]++' .trivyignore detected-cves.txt > "$RUNNER_TEMP/trivyignore"
+          '[.Results[]?.Vulnerabilities[]?.VulnerabilityID | select(test("^(CVE-[0-9]{4}-[0-9]+|GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4})$"))] | unique[]' \
+          trivy-results.json > detected-vulnerability-ids.txt
+        awk '!seen[$0]++' .trivyignore detected-vulnerability-ids.txt > "$RUNNER_TEMP/trivyignore"
         mv "$RUNNER_TEMP/trivyignore" .trivyignore
 
-    - name: Scan with CVE ignore list
+    - name: Scan with vulnerability ignore list
       run: |
         trivy image \
           --input "$RUNNER_TEMP/docker-image/d13revision.tar" \
@@ -185,7 +185,7 @@ jobs:
           --exit-code 1 \
           --timeout 10m
 
-    - name: Upload Trivy report and CVE ignore list
+    - name: Upload Trivy report and vulnerability ignore list
       if: always()
       uses: actions/upload-artifact@v4
       with:
